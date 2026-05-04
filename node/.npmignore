@@ -1,0 +1,6 @@
+tests/
+.env
+.env.*
+*.log
+node_modules/
+jest.config.js
