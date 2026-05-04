@@ -13,7 +13,8 @@ readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "redis>=4.5.0",
-    "pydantic>=2.0.0"
+    "pydantic>=2.0.0",
+    "httpx>=0.24.0"
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -23,3 +24,7 @@ classifiers = [
 
 [project.urls]
 "Homepage" = "https://github.com/your-org/AgentMonorepo"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

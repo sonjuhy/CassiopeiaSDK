@@ -6,42 +6,51 @@
 ## English
 
 ### Overview
-This is the official Node.js SDK for the Cassiopeia Agent framework. It provides an easy-to-use interface to connect to the Cassiopeia messaging bus (via Redis Pub/Sub), register tools, and communicate with other agents.
+Official Node.js SDK for the Cassiopeia Agent framework. Install this single library to connect your agent to the orchestra network — no Redis wiring, no message schema boilerplate.
+
+**What you get:**
+- `AgentBase` — base class: implement `handle()` and you're done
+- `CassiopeiaClient` — low-level Redis Pub/Sub messaging
+- `verifyMessage` — HMAC signature verification for incoming tasks
+- JSDoc types: `AgentResult`, `OrchestraTask`, `LLMRequest`, `LLMResponse`
+
+### Requirements
+- Node.js 18+ (uses built-in `fetch`)
+- Access to the orchestra's Redis server
 
 ### Installation
 ```bash
 npm install cassiopeia-sdk
 ```
 
-### Usage Example
+### Quickstart
 ```javascript
-const { CassiopeiaClient, ToolExecutor } = require('cassiopeia-sdk');
+const { AgentBase } = require('cassiopeia-sdk');
+
+class MyAgent extends AgentBase {
+  async handle(msg) {
+    // Call LLM through the orchestra gateway (no API key needed)
+    const response = await this.requestLlm([
+      { role: 'user', content: msg.payload.content }
+    ]);
+    await this.sendResult(msg.payload.task_id, { answer: response.content });
+  }
+}
 
 async function main() {
-  // 1. Initialize the client
-  const client = new CassiopeiaClient('my_agent_id', 'redis://localhost:6379');
-
-  // 2. Define and register a custom tool
-  const executor = new ToolExecutor();
-  const myTool = {
-      name: 'say_hello',
-      description: 'Greets the user',
-      parameters: { type: 'object', properties: { name: { type: 'string' } } }
-  };
-  
-  executor.registerTool(myTool, async (args) => {
-      return `Hello, ${args.name}!`;
+  const agent = new MyAgent(process.env.AGENT_ID, process.env.REDIS_URL);
+  await agent.register(process.env.ORCHESTRA_URL, {
+    capabilities: ['my_action'],
+    allowLlmAccess: true,
+    apiKey: process.env.ORCHESTRA_API_KEY,
   });
-
-  // 3. Connect to the messaging bus
-  await client.connect();
-
-  // 4. Send a message to the Cassiopeia orchestra
-  await client.sendMessage('task_request', { task: 'Analyze data' });
+  await agent.start();
 }
 
 main().catch(console.error);
 ```
+
+See [GUIDE.md](GUIDE.md) for the full reference.
 
 ---
 
@@ -49,39 +58,48 @@ main().catch(console.error);
 ## 한국어
 
 ### 개요
-Cassiopeia 에이전트 프레임워크를 위한 공식 Node.js SDK입니다. Cassiopeia 메시징 버스(Redis Pub/Sub 기반)에 연결하고, 도구(Tool)를 등록하며, 다른 에이전트와 통신할 수 있는 사용하기 쉬운 인터페이스를 제공합니다.
+Cassiopeia 에이전트 프레임워크의 공식 Node.js SDK입니다. 이 라이브러리 하나만 설치하면 오케스트라 네트워크에 에이전트를 연결할 수 있습니다. Redis 연결이나 메시지 스키마를 직접 다룰 필요가 없습니다.
 
-### 설치 방법
+**제공 기능:**
+- `AgentBase` — 기본 클래스: `handle()`만 구현하면 동작
+- `CassiopeiaClient` — 저수준 Redis Pub/Sub 메시징
+- `verifyMessage` — 수신 메시지 HMAC 서명 검증
+- JSDoc 타입: `AgentResult`, `OrchestraTask`, `LLMRequest`, `LLMResponse`
+
+### 요구사항
+- Node.js 18 이상 (내장 `fetch` 사용)
+- 오케스트라의 Redis 서버 접근 가능
+
+### 설치
 ```bash
 npm install cassiopeia-sdk
 ```
 
-### 사용 예시
+### 빠른 시작
 ```javascript
-const { CassiopeiaClient, ToolExecutor } = require('cassiopeia-sdk');
+const { AgentBase } = require('cassiopeia-sdk');
+
+class MyAgent extends AgentBase {
+  async handle(msg) {
+    // 오케스트라 LLM 게이트웨이 호출 (별도 API 키 불필요)
+    const response = await this.requestLlm([
+      { role: 'user', content: msg.payload.content }
+    ]);
+    await this.sendResult(msg.payload.task_id, { answer: response.content });
+  }
+}
 
 async function main() {
-  // 1. 클라이언트 초기화
-  const client = new CassiopeiaClient('my_agent_id', 'redis://localhost:6379');
-
-  // 2. 커스텀 도구 등록
-  const executor = new ToolExecutor();
-  const myTool = {
-      name: 'say_hello',
-      description: '사용자에게 인사합니다',
-      parameters: { type: 'object', properties: { name: { type: 'string' } } }
-  };
-  
-  executor.registerTool(myTool, async (args) => {
-      return `안녕하세요, ${args.name}님!`;
+  const agent = new MyAgent(process.env.AGENT_ID, process.env.REDIS_URL);
+  await agent.register(process.env.ORCHESTRA_URL, {
+    capabilities: ['my_action'],
+    allowLlmAccess: true,
+    apiKey: process.env.ORCHESTRA_API_KEY,
   });
-
-  // 3. 메시징 버스에 연결
-  await client.connect();
-
-  // 4. Cassiopeia 오케스트라로 메시지 전송
-  await client.sendMessage('task_request', { task: '데이터 분석' });
+  await agent.start();
 }
 
 main().catch(console.error);
 ```
+
+전체 레퍼런스는 [GUIDE.md](GUIDE.md)를 참고하세요.

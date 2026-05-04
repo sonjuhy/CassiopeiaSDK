@@ -6,45 +6,46 @@
 ## English
 
 ### Overview
-This is the official Python SDK for the Cassiopeia Agent framework. It provides an asynchronous, easy-to-use interface to connect to the Cassiopeia messaging bus (via Redis Pub/Sub), register tools, and communicate with other agents.
+Official Python SDK for the Cassiopeia Agent framework. Install this single library to connect your agent to the orchestra network — no Redis wiring, no message schema boilerplate.
+
+**What you get:**
+- `AgentBase` — base class: implement `handle()` and you're done
+- `CassiopeiaClient` — low-level Redis Pub/Sub messaging
+- `verify_message` — HMAC signature verification for incoming tasks
+- Protocol types: `AgentResult`, `OrchestraTask`, `LLMRequest`, `LLMResponse`
+
+### Requirements
+- Python 3.10+
+- Access to the orchestra's Redis server
 
 ### Installation
 ```bash
 pip install cassiopeia-sdk
 ```
 
-### Usage Example
+### Quickstart
 ```python
-import asyncio
-from cassiopeia_sdk.client import CassiopeiaClient
-from cassiopeia_sdk.tools import Tool, ToolExecutor
+import asyncio, os
+from cassiopeia_sdk import AgentBase, AgentMessage
+
+class MyAgent(AgentBase):
+    async def handle(self, msg: AgentMessage) -> None:
+        # Call LLM through the orchestra gateway (no API key needed)
+        response = await self.request_llm([
+            {"role": "user", "content": msg.payload["content"]}
+        ])
+        await self.send_result(msg.payload["task_id"], {"answer": response["content"]})
 
 async def main():
-    # 1. Initialize the client
-    client = CassiopeiaClient(agent_id="my_agent", redis_url="redis://localhost:6379")
-    
-    # 2. Define and register a custom tool
-    executor = ToolExecutor()
-    
-    async def hello_handler(args):
-        return f"Hello, {args.get('name')}!"
-        
-    my_tool = Tool(
-        name="say_hello", 
-        description="Greets the user", 
-        parameters={"type": "object", "properties": {"name": {"type": "string"}}}
-    )
-    executor.register_tool(my_tool, hello_handler)
-    
-    # 3. Connect to the messaging bus
-    await client.connect()
-    
-    # 4. Send a message
-    await client.send_message(action="do_task", payload={"task": "test"})
+    agent = MyAgent(os.getenv("AGENT_ID"), os.getenv("REDIS_URL"))
+    await agent.register(os.getenv("ORCHESTRA_URL"), capabilities=["my_action"],
+                         allow_llm_access=True, api_key=os.getenv("ORCHESTRA_API_KEY"))
+    await agent.start()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
+
+See [GUIDE.md](GUIDE.md) for the full reference.
 
 ---
 
@@ -52,42 +53,43 @@ if __name__ == "__main__":
 ## 한국어
 
 ### 개요
-Cassiopeia 에이전트 프레임워크를 위한 공식 Python SDK입니다. 비동기 기반의 쉬운 인터페이스를 통해 Cassiopeia 메시징 버스(Redis Pub/Sub)에 연결하고, 도구(Tool)를 등록하며, 다른 에이전트와 통신할 수 있도록 지원합니다.
+Cassiopeia 에이전트 프레임워크의 공식 Python SDK입니다. 이 라이브러리 하나만 설치하면 오케스트라 네트워크에 에이전트를 연결할 수 있습니다. Redis 연결이나 메시지 스키마를 직접 다룰 필요가 없습니다.
 
-### 설치 방법
+**제공 기능:**
+- `AgentBase` — 기본 클래스: `handle()`만 구현하면 동작
+- `CassiopeiaClient` — 저수준 Redis Pub/Sub 메시징
+- `verify_message` — 수신 메시지 HMAC 서명 검증
+- 프로토콜 타입: `AgentResult`, `OrchestraTask`, `LLMRequest`, `LLMResponse`
+
+### 요구사항
+- Python 3.10 이상
+- 오케스트라의 Redis 서버 접근 가능
+
+### 설치
 ```bash
 pip install cassiopeia-sdk
 ```
 
-### 사용 예시
+### 빠른 시작
 ```python
-import asyncio
-from cassiopeia_sdk.client import CassiopeiaClient
-from cassiopeia_sdk.tools import Tool, ToolExecutor
+import asyncio, os
+from cassiopeia_sdk import AgentBase, AgentMessage
+
+class MyAgent(AgentBase):
+    async def handle(self, msg: AgentMessage) -> None:
+        # 오케스트라 LLM 게이트웨이 호출 (별도 API 키 불필요)
+        response = await self.request_llm([
+            {"role": "user", "content": msg.payload["content"]}
+        ])
+        await self.send_result(msg.payload["task_id"], {"answer": response["content"]})
 
 async def main():
-    # 1. 클라이언트 초기화
-    client = CassiopeiaClient(agent_id="my_agent", redis_url="redis://localhost:6379")
-    
-    # 2. 커스텀 도구 등록
-    executor = ToolExecutor()
-    
-    async def hello_handler(args):
-        return f"안녕하세요, {args.get('name')}님!"
-        
-    my_tool = Tool(
-        name="say_hello", 
-        description="사용자에게 인사합니다", 
-        parameters={"type": "object", "properties": {"name": {"type": "string"}}}
-    )
-    executor.register_tool(my_tool, hello_handler)
-    
-    # 3. 메시징 버스에 연결
-    await client.connect()
-    
-    # 4. 메시지 전송
-    await client.send_message(action="do_task", payload={"task": "test"})
+    agent = MyAgent(os.getenv("AGENT_ID"), os.getenv("REDIS_URL"))
+    await agent.register(os.getenv("ORCHESTRA_URL"), capabilities=["my_action"],
+                         allow_llm_access=True, api_key=os.getenv("ORCHESTRA_API_KEY"))
+    await agent.start()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
+
+전체 레퍼런스는 [GUIDE.md](GUIDE.md)를 참고하세요.

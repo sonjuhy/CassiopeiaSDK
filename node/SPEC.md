@@ -1,117 +1,118 @@
-# Spec: Cassiopeia Agent SDK 및 가이드
+# Spec: Cassiopeia Agent Node.js SDK
 
 ## 1. Objective (목적)
-노코드(No-code) 혹은 바이브 코딩(Vibe-coding) 환경의 개발자가 **단 하나의 라이브러리**만으로 오케스트라(Cassiopeia) 에이전트와 통신하고, 도구를 호출하는 에이전트를 손쉽게 빌드할 수 있도록 하는 SDK(Python, Node.js)와 그 활용 가이드를 제공합니다. 통신 규격(Redis Pub/Sub), 권한 관리, 에러 처리 등의 복잡성을 라이브러리가 완전히 추상화하여, 개발자는 비즈니스 로직(혹은 프롬프트)에만 집중할 수 있어야 합니다.
+노코드(No-code) 혹은 바이브 코딩(Vibe-coding) 환경의 개발자가 **단 하나의 라이브러리**만으로 오케스트라(Cassiopeia) 에이전트와 통신하고, LLM을 호출하는 에이전트를 손쉽게 빌드할 수 있도록 하는 Node.js SDK와 그 활용 가이드를 제공합니다. 통신 규격(Redis Pub/Sub), HMAC 서명 검증, LLM 게이트웨이 연동, 에러 처리 등의 복잡성을 라이브러리가 완전히 추상화하여, 개발자는 비즈니스 로직에만 집중할 수 있어야 합니다.
 
 ## 2. Tech Stack (기술 스택)
-- **Python SDK:** Python 3.10+, `redis` (비동기 통신), `pytest` (테스트), `pydantic` (데이터 유효성 검증)
 - **Node.js SDK:** Node.js 18+, `ioredis` (비동기 통신), `jest` (테스트), `zod` (데이터 유효성 검증)
-- **문서화:** Markdown (`GUIDE.md`)
+- **내장 모듈:** `crypto` (HMAC 서명 검증), `fetch` (오케스트라 HTTP 등록)
+- **문서화:** Markdown (`GUIDE.md`, `README.md`)
 
 ## 3. Commands (실행 명령어)
-### Python SDK
-- 환경 설정: `python -m venv venv && venv\Scripts\activate` (Windows 기준)
-- 의존성 설치: `pip install -r requirements.txt`
-- 테스트: `pytest tests/ -v`
-
-### Node.js SDK
-- 환경 설정 및 설치: `npm install`
+- 의존성 설치: `npm install`
 - 테스트: `npm test`
 
 ## 4. Project Structure (프로젝트 구조)
 ```text
-agent_sdk/
+node/
 ├── SPEC.md                  # 스펙 정의 문서
 ├── GUIDE.md                 # 에이전트 개발 가이드 문서
-├── python/                  # Python SDK
-│   ├── cassiopeia_sdk/       # 실제 라이브러리 코드
-│   │   ├── __init__.py
-│   │   ├── client.py        # Redis Pub/Sub 오케스트라 통신 클라이언트
-│   │   └── tools.py         # 도구 호출 규격 처리
-│   ├── tests/               # 단위 테스트 (TDD 적용)
-│   ├── pytest.ini
-│   └── requirements.txt
-└── node/                    # Node.js SDK
-    ├── src/                 # 실제 라이브러리 코드
-    │   ├── index.js         # 진입점
-    │   ├── client.js        # Redis Pub/Sub 오케스트라 통신 클라이언트
-    │   └── tools.js         # 도구 호출 규격 처리
-    ├── tests/               # 단위 테스트 (TDD 적용)
-    ├── package.json
-    └── jest.config.js
+├── README.md                # 설치 및 빠른 시작
+├── package.json
+├── src/
+│   ├── index.js             # 진입점 (공개 API 재수출)
+│   ├── client.js            # Redis Pub/Sub 저수준 통신 클라이언트
+│   ├── agent.js             # AgentBase — 에이전트 기본 클래스
+│   ├── auth.js              # HMAC 서명 검증, pythonJsonDumps
+│   ├── schemas.js           # JSDoc 타입 정의 (AgentResult, OrchestraTask, LLMRequest, LLMResponse)
+│   └── tools.js             # 도구 호출 규격 처리
+└── tests/
+    ├── agent.test.js        # AgentBase 단위 테스트
+    ├── auth.test.js         # verifyMessage, pythonJsonDumps 단위 테스트
+    ├── client.test.js       # CassiopeiaClient 단위 테스트
+    └── tools.test.js        # Tool/ToolExecutor 단위 테스트
 ```
 
-## 5. Code Style (코드 스타일)
-### Python (예시)
-```python
-# cassiopeia_sdk/client.py
-from pydantic import BaseModel, Field
-from datetime import datetime
-from typing import Any
+## 5. Module Responsibilities (모듈 책임)
 
-class AgentMessage(BaseModel):
-    sender: str
-    receiver: str
-    action: str
-    payload: dict[str, Any] = Field(default_factory=dict)
-    timestamp: datetime = Field(default_factory=datetime.now)
+| 모듈 | 책임 |
+|------|------|
+| `client.js` | Redis Pub/Sub 연결·발행·구독. 저수준 메시지 직렬화/역직렬화 |
+| `agent.js` | `AgentBase` 클래스 — `start()`, `handle()`, `sendResult()`, `requestLlm()`, `register()` |
+| `auth.js` | HMAC-SHA256 서명 검증 (`verifyMessage`), Python 호환 JSON 직렬화 (`pythonJsonDumps`) |
+| `schemas.js` | JSDoc 타입 정의만 포함. 런타임 로직 없음 |
+| `tools.js` | `Tool`, `ToolExecutor` — zod 스키마 기반 도구 정의 및 실행 |
+| `index.js` | 공개 API 재수출 (`AgentBase`, `CassiopeiaClient`, `verifyMessage`, `DispatchAuthError`, JSDoc 타입) |
 
-class CassiopeiaClient:
-    def __init__(self, agent_id: str, redis_url: str):
-        self.agent_id = agent_id
-        self.redis_url = redis_url
-
-    async def connect(self):
-        pass
-
-    async def send_message(self, action: str, payload: dict) -> bool:
-        # Redis 채널 'agent:cassiopeia' 로 메시지 발행
-        pass
-
-    async def listen(self):
-        # Redis 채널 'agent:{agent_id}' 구독
-        pass
-```
-
-### Node.js (예시)
+## 6. Code Style (코드 스타일)
 ```javascript
-// src/client.js
-class CassiopeiaClient {
-    constructor(agentId, redisUrl) {
-        this.agentId = agentId;
-        this.redisUrl = redisUrl;
-    }
+// src/agent.js — AgentBase 사용 패턴
+const { AgentBase } = require('cassiopeia-sdk');
 
-    async connect() {
-        // Redis 연결
-    }
+class MyAgent extends AgentBase {
+  async handle(msg) {
+    const response = await this.requestLlm([
+      { role: 'user', content: msg.payload.content }
+    ], { maxTokens: 500, temperature: 0.7 });
 
-    async sendMessage(action, payload) {
-        // Redis 채널 'agent:cassiopeia' 로 메시지 발행
-    }
-    
-    async listen(callback) {
-        // Redis 채널 'agent:{agentId}' 구독 및 콜백 실행
-    }
+    await this.sendResult(msg.payload.task_id, { answer: response.content });
+  }
 }
-module.exports = { CassiopeiaClient };
+
+const agent = new MyAgent(process.env.AGENT_ID, process.env.REDIS_URL);
+await agent.register(process.env.ORCHESTRA_URL, {
+  capabilities: ['my_action'],
+  allowLlmAccess: true,
+  apiKey: process.env.ORCHESTRA_API_KEY,
+});
+await agent.start();
 ```
 
-## 6. Testing Strategy (테스트 전략)
-- **TDD(Test-Driven Development) 원칙 준수:** 항상 실패하는 테스트를 먼저 작성(RED)하고, 이를 통과하는 최소한의 코드를 작성(GREEN)한 뒤 리팩토링(REFACTOR)합니다.
-- **Python:** `pytest`를 이용한 단위 테스트. `unittest.mock.AsyncMock`을 활용해 외부 Redis 통신 모킹(Mocking).
-- **Node.js:** `jest`를 이용한 단위 테스트. `ioredis` 호출부 모킹.
-- **테스트 범위:** 클라이언트 객체 생성, 오케스트라로의 메시지 발행(Publish), 오케스트라로부터의 메시지 구독(Subscribe) 및 도구 호출 요청/응답 규격 파싱.
+## 7. Key Design Decisions (핵심 설계 결정)
 
-## 7. Boundaries (경계 및 규칙)
-- **Always do:** 테스트 코드를 작성하고 통과 여부를 먼저 확인합니다. 모든 문서 및 주석, 출력물은 한국어로 작성합니다.
-- **Ask first:** 프레임워크나 외부 의존성을 크게 추가해야 할 경우. 이번 요구사항은 가벼운 래퍼(Wrapper) 라이브러리에 국한됩니다.
-- **Never do:** 시크릿 키나 하드코딩된 Redis URL을 라이브러리에 노출하지 않습니다.
+### LLM 게이트웨이 연동 패턴
+외부 에이전트는 직접 LLM API를 호출하지 않습니다. `requestLlm()`이 오케스트라로 `llm_call` 액션을 전송하고, 오케스트라가 LLM을 호출한 뒤 `llm_result`로 응답합니다. Node.js의 Promise + Map 패턴으로 비동기 응답을 매칭합니다.
 
-## 8. Success Criteria (성공 기준)
-- [ ] `agent_sdk/python`에 Python 패키지가 완성되고 테스트가 모두 통과(GREEN)해야 합니다.
-- [ ] `agent_sdk/node`에 Node.js 패키지가 완성되고 테스트가 모두 통과(GREEN)해야 합니다.
-- [ ] 노코드 개발자가 쉽게 복사하여 쓸 수 있는 `GUIDE.md` 문서가 명확하게 작성되어야 하며, Redis 통신 설정 및 도구 호출 방법, 컨테이너 환경 적용 방법, 권한 안내가 포함되어야 합니다.
+```javascript
+// _pendingLlm: Map<taskId, { resolve, reject, timer }>
+requestLlm(messages, opts) {
+  const taskId = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { reject(new Error('타임아웃')); }, opts.timeout);
+    this._pendingLlm.set(taskId, { resolve, reject, timer });
+    this.client.sendMessage('llm_call', { task_id: taskId, ... }, 'orchestra');
+  });
+}
+```
 
-## 9. Open Questions (미결 질문)
-- 특이사항 없음. (오케스트라 Redis 규격 파악 완료)
+### Python 호환 HMAC 서명
+오케스트라(Python)가 `json.dumps(sort_keys=True)`로 서명합니다. Python의 기본 구분자는 `": "`, `", "` (공백 포함)입니다. Node.js의 `JSON.stringify()`는 공백 없이 직렬화하므로 `pythonJsonDumps()`로 동일한 형식을 재현합니다.
+
+```javascript
+// pythonJsonDumps({ z: 1, a: 2 }) === '{"a": 1, "z": 2}'
+```
+
+## 8. Testing Strategy (테스트 전략)
+- **TDD 원칙:** RED → GREEN → REFACTOR 사이클 준수
+- **단위 테스트:** `jest`로 모든 공개 API 커버
+- **모킹:** `jest.mock('../src/client')`으로 Redis 통신 격리
+- **크로스 언어 검증:** `pythonJsonDumps` 출력이 Python `json.dumps` 결과와 일치함을 테스트로 확인
+- **테스트 현황:** 27개 테스트 전체 통과
+
+## 9. Boundaries (경계 및 규칙)
+- **Always do:** 테스트 코드를 먼저 작성하고 통과를 확인합니다. 문서와 주석은 한국어로 작성합니다.
+- **Never do:** 시크릿 키나 하드코딩된 Redis URL을 라이브러리에 노출하지 않습니다. `system` 역할 메시지를 LLM 요청에 허용하지 않습니다 (프롬프트 인젝션 방어).
+- **Ask first:** 외부 의존성을 크게 추가해야 할 경우.
+
+## 10. Success Criteria (성공 기준)
+- [x] `AgentBase` 클래스 구현 — `handle()` 오버라이드만으로 에이전트 완성
+- [x] `requestLlm()` — 오케스트라 LLM 게이트웨이를 통한 비동기 LLM 호출 (별도 API 키 불필요)
+- [x] `sendResult()` — COMPLETED/FAILED 결과를 오케스트라로 반환
+- [x] `register()` — 오케스트라 `/agents` 엔드포인트에 에이전트 등록 (Node 18 내장 fetch)
+- [x] `verifyMessage()` — Python 오케스트라와 호환되는 HMAC-SHA256 서명 검증
+- [x] 27개 단위 테스트 전체 통과 (GREEN)
+- [x] `GUIDE.md` — 11개 섹션의 완전한 참조 문서
+- [x] `README.md` — 영문/한국어 이중 언어 빠른 시작 가이드
+
+## 11. Open Questions (미결 질문)
+- 특이사항 없음.
