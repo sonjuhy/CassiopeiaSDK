@@ -1,5 +1,5 @@
 # cassiopeia_sdk 패키지 초기화
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 from .client import CassiopeiaClient, AgentMessage
 from .tools import Tool, ToolExecutor
