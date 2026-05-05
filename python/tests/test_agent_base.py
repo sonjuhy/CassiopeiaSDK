@@ -12,7 +12,7 @@ from cassiopeia_sdk.client import AgentMessage
 
 
 def _make_msg(action: str, payload: dict) -> AgentMessage:
-    return AgentMessage(sender="orchestra", receiver="my_agent", action=action, payload=payload)
+    return AgentMessage(sender="cassiopeia", receiver="my_agent", action=action, payload=payload)
 
 
 class ConcreteAgent(AgentBase):
@@ -32,11 +32,11 @@ def agent():
 
 
 class TestSendResult:
-    async def test_sends_to_orchestra(self, agent):
+    async def test_sends_to_cassiopeia(self, agent):
         await agent.send_result("task-1", {"answer": "ok"})
         agent.client.send_message.assert_awaited_once()
         kwargs = agent.client.send_message.call_args.kwargs
-        assert kwargs["receiver"] == "orchestra"
+        assert kwargs["receiver"] == "cassiopeia"
         assert kwargs["action"] == "agent_result"
 
     async def test_completed_status_when_no_error(self, agent):
@@ -58,7 +58,7 @@ class TestSendResult:
 
 
 class TestRequestLLM:
-    async def test_sends_llm_call_to_orchestra(self, agent):
+    async def test_sends_llm_call_to_cassiopeia(self, agent):
         async def _resolve():
             await asyncio.sleep(0)
             task_id = list(agent._pending_llm.keys())[0]
@@ -70,7 +70,7 @@ class TestRequestLLM:
         agent.client.send_message.assert_awaited()
         kwargs = agent.client.send_message.call_args.kwargs
         assert kwargs["action"] == "llm_call"
-        assert kwargs["receiver"] == "orchestra"
+        assert kwargs["receiver"] == "cassiopeia"
 
     async def test_returns_llm_response(self, agent):
         async def _resolve():
@@ -108,7 +108,7 @@ class TestLLMResultRouting:
 
 
 class TestRegister:
-    async def test_register_posts_to_orchestra(self, agent):
+    async def test_register_posts_to_cassiopeia(self, agent):
         mock_response = MagicMock()
         mock_response.status_code = 201
 
@@ -120,7 +120,7 @@ class TestRegister:
             mock_client_cls.return_value = mock_http
 
             result = await agent.register(
-                orchestra_url="http://localhost:8000",
+                cassiopeia_url="http://localhost:8000",
                 capabilities=["my_action"],
                 api_key="test-key",
             )
@@ -141,6 +141,6 @@ class TestRegister:
             mock_http.__aexit__ = AsyncMock(return_value=None)
             mock_client_cls.return_value = mock_http
 
-            result = await agent.register("http://localhost:8000", capabilities=[])
+            result = await agent.register(cassiopeia_url="http://localhost:8000", capabilities=[])
 
         assert result is False

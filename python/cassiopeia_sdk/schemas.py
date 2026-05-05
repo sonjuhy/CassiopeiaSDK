@@ -11,8 +11,8 @@ class AgentResult(TypedDict):
     usage_stats: dict[str, Any]
 
 
-# 오케스트라에서 수신하는 태스크
-class OrchestraTask(TypedDict):
+# 카시오페아에서 수신하는 태스크
+class CassiopeiaTask(TypedDict):
     task_id: str
     session_id: str
     requester: dict  # {user_id, channel_id}

@@ -52,10 +52,10 @@ class AgentBase:
         result_data: dict,
         error: str | None = None,
     ) -> None:
-        """오케스트라에 처리 결과를 반환합니다."""
+        """카시오페아에 처리 결과를 반환합니다."""
         await self.client.send_message(
             action="agent_result",
-            receiver="orchestra",
+            receiver="cassiopeia",
             payload=AgentResult(
                 task_id=task_id,
                 agent=self.agent_id,
@@ -85,7 +85,7 @@ class AgentBase:
 
         await self.client.send_message(
             action="llm_call",
-            receiver="orchestra",
+            receiver="cassiopeia",
             payload={
                 "task_id": task_id,
                 "agent_id": self.agent_id,
@@ -98,7 +98,7 @@ class AgentBase:
 
     async def register(
         self,
-        orchestra_url: str,
+        cassiopeia_url: str,
         capabilities: list[str],
         lifecycle_type: str = "long_running",
         permission_preset: str = "standard",
@@ -106,12 +106,12 @@ class AgentBase:
         api_key: str = "",
     ) -> bool:
         """
-        오케스트라 HTTP API로 이 에이전트를 등록합니다.
-        orchestra_url: 오케스트라 주소 (예: "http://localhost:8000")
+        카시오페아 HTTP API로 이 에이전트를 등록합니다.
+        cassiopeia_url: 카시오페아 주소 (예: "http://localhost:8000")
         """
         async with httpx.AsyncClient() as http:
             resp = await http.post(
-                f"{orchestra_url}/agents",
+                f"{cassiopeia_url}/agents",
                 json={
                     "agent_name": self.agent_id,
                     "capabilities": capabilities,
