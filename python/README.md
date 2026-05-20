@@ -10,6 +10,8 @@ Official Python SDK for the Cassiopeia Agent framework. Install this single libr
 
 **What you get:**
 - `AgentBase` — base class: implement `handle()` and you're done
+- `AgentBrain` — NLU router: natural-language → `BrainDecision` (tool + params) with injection guard, retry, rate limit
+- `Tool` — typed tool definition with JSON Schema validation
 - `CassiopeiaClient` — low-level Redis Pub/Sub messaging
 - `verify_message` — HMAC signature verification for incoming tasks
 - Protocol types: `AgentResult`, `OrchestraTask`, `LLMRequest`, `LLMResponse`
@@ -57,6 +59,8 @@ Cassiopeia 에이전트 프레임워크의 공식 Python SDK입니다. 이 라�
 
 **제공 기능:**
 - `AgentBase` — 기본 클래스: `handle()`만 구현하면 동작
+- `AgentBrain` — NLU 라우터: 자연어 → `BrainDecision`(Tool + 파라미터), 인젝션 방어·재시도·속도 제한 내장
+- `Tool` — JSON Schema 기반 타입 안전 도구 정의
 - `CassiopeiaClient` — 저수준 Redis Pub/Sub 메시징
 - `verify_message` — 수신 메시지 HMAC 서명 검증
 - 프로토콜 타입: `AgentResult`, `OrchestraTask`, `LLMRequest`, `LLMResponse`
