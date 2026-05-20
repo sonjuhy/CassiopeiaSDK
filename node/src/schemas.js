@@ -1,53 +1,58 @@
 /**
- * 오케스트라 프로토콜 타입 정의
+ * LLM 게이트웨이 Zod 스키마 — 런타임 검증 포함
  *
- * JSDoc 타입으로만 정의됩니다 — 런타임 영향 없음.
- * IDE 자동완성 및 타입 힌트 용도로 사용하세요.
+ * Python cassiopeia_sdk.schemas와 동일한 검증 규칙을 적용합니다.
  */
 'use strict';
 
-/**
- * 오케스트라로 결과 반환 시 payload 구조
- * @typedef {Object} AgentResult
- * @property {string} task_id
- * @property {string} agent
- * @property {'COMPLETED'|'FAILED'|'PROCESSING'} status
- * @property {Object} result_data
- * @property {string|null} error
- * @property {Object} usage_stats
- */
+const { z } = require('zod');
 
-/**
- * 오케스트라에서 수신하는 태스크 payload 구조
- * @typedef {Object} OrchestraTask
- * @property {string} task_id
- * @property {string} session_id
- * @property {{user_id: string, channel_id: string}} requester
- * @property {string} content    - 사용자 원문
- * @property {string} action     - 이 에이전트에 요청된 액션
- * @property {Object} params
- * @property {string} source     - "slack" | "api" | ...
- */
+// model 필드 허용 패턴: 영문자·숫자·점·하이픈, 1~100자
+const MODEL_PATTERN = /^[a-zA-Z0-9.\-]+$/;
 
-/**
- * LLM 게이트웨이 요청 payload 구조
- * @typedef {Object} LLMRequest
- * @property {string} task_id
- * @property {string} agent_id
- * @property {Array<{role: 'user'|'assistant', content: string}>} messages
- * @property {number} max_tokens   - 1 ~ 2000
- * @property {number} temperature  - 0.0 ~ 1.0
- */
+// 허용 role 집합
+const ALLOWED_ROLES = new Set(['user', 'assistant', 'system']);
 
-/**
- * LLM 게이트웨이 응답 payload 구조
- * @typedef {Object} LLMResponse
- * @property {string} task_id
- * @property {'completed'|'rate_limited'|'unauthorized'|'error'} status
- * @property {string} content
- * @property {{prompt_tokens: number, completion_tokens: number, total_tokens: number}} usage
- * @property {string|null} error
- * @property {number|null} retry_after  - rate_limited일 때만
- */
+// ---------------------------------------------------------------------------
+// LLMRequest — LLM 게이트웨이 요청 스키마
+// ---------------------------------------------------------------------------
 
-module.exports = {};
+const LLMRequestSchema = z.object({
+  task_id: z.string(),
+  agent_id: z.string(),
+  messages: z
+    .array(z.object({ role: z.string(), content: z.string() }))
+    .refine(
+      (msgs) => msgs.every((m) => ALLOWED_ROLES.has(m.role)),
+      { message: 'messages의 role은 user | assistant | system 중 하나여야 합니다' }
+    ),
+  max_tokens: z.number().int().min(1).max(2000).default(500),
+  temperature: z.number().min(0.0).max(1.0).default(0.7),
+  model: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(MODEL_PATTERN, {
+      message: 'model은 영문자·숫자·점·하이픈으로 구성된 1~100자 문자열이어야 합니다',
+    })
+    .nullable()
+    .optional(),
+});
+
+// ---------------------------------------------------------------------------
+// LLMResponse — LLM 게이트웨이 응답 스키마
+// ---------------------------------------------------------------------------
+
+const LLMResponseSchema = z
+  .object({
+    task_id: z.string(),
+    status: z.enum(['completed', 'rate_limited', 'unauthorized', 'error']),
+    content: z.string().default(''),
+    usage: z.record(z.any()).default({}),
+    error: z.string().nullable().optional(),
+    retry_after: z.number().nullable().optional(),
+    model: z.string().nullable().optional(),
+  })
+  .passthrough(); // 서버 추가 필드 허용
+
+module.exports = { LLMRequestSchema, LLMResponseSchema };
