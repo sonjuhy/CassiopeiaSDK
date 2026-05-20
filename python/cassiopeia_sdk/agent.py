@@ -2,7 +2,7 @@ import asyncio, uuid
 import httpx
 from .client import CassiopeiaClient, AgentMessage
 from .auth import verify_message, DispatchAuthError
-from .schemas import AgentResult, LLMResponse
+from .schemas import AgentResult, LLMRequest, LLMResponse
 
 
 class AgentBase:
@@ -72,29 +72,44 @@ class AgentBase:
         max_tokens: int = 500,
         temperature: float = 0.7,
         timeout: float = 30.0,
+        model: str | None = None,
     ) -> LLMResponse:
         """
         오케스트라 LLM 게이트웨이를 통해 LLM을 호출합니다.
 
+        Args:
+            messages:     role/content 메시지 배열. role은 "user"|"assistant"|"system" 허용.
+            max_tokens:   생성 최대 토큰 수 (기본 500, 최대 2000).
+            temperature:  샘플링 온도 (0.0~1.0, 기본 0.7).
+            timeout:      응답 대기 제한 시간(초).
+            model:        사용할 모델 오버라이드. None이면 서버 기본 모델 사용.
+
         Raises:
-            TimeoutError: timeout 초 내에 응답이 없을 때
+            pydantic.ValidationError: 입력값이 유효하지 않을 때 (서버 전송 전 차단)
+            TimeoutError:             timeout 초 내에 응답이 없을 때
         """
         task_id = str(uuid.uuid4())
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending_llm[task_id] = fut
 
+        # 입력 검증 — ValidationError 발생 시 서버로 전송하지 않음
+        request = LLMRequest(
+            task_id=task_id,
+            agent_id=self.agent_id,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            model=model,
+        )
+
         await self.client.send_message(
             action="llm_call",
             receiver="cassiopeia",
-            payload={
-                "task_id": task_id,
-                "agent_id": self.agent_id,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-            },
+            payload=request.model_dump(exclude_none=True),
         )
-        return await asyncio.wait_for(fut, timeout=timeout)
+
+        raw: dict = await asyncio.wait_for(fut, timeout=timeout)
+        return LLMResponse.model_validate(raw)
 
     async def register(
         self,

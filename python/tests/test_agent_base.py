@@ -85,7 +85,7 @@ class TestRequestLLM:
 
         asyncio.create_task(_resolve())
         result = await agent.request_llm([{"role": "user", "content": "질문"}])
-        assert result["content"] == "테스트 응답"
+        assert result.content == "테스트 응답"
 
     async def test_timeout_raises(self, agent):
         with pytest.raises((asyncio.TimeoutError, TimeoutError)):
