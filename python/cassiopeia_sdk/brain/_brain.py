@@ -140,6 +140,7 @@ class AgentBrain:
         self._rate_limiter = RateLimiter(
             limit=self.config.rate_limit_per_minute,
             backend=self.config.rate_limit_backend,
+            agent_name=agent_name,
         )
 
     async def analyze_task(

@@ -223,7 +223,7 @@ class MyAgent(AgentBase):
 | `enable_llm_secondary_guard` | `False` | LLM 기반 2차 인젝션 방어 (추가 LLM 호출 발생) |
 | `rate_limit_per_minute` | `None` | 분당 최대 호출 수 (`None`=무제한) |
 | `rate_limit_backend` | `'memory'` | `'memory'` 또는 `'redis'` |
-| `output_escape_policy` | `'none'` | `'none'`, `'markdown'`, `'html'` 중 택일 |
+| `output_escape_policy` | `'markdown'` | `'none'`, `'markdown'`, `'html'` 중 택일 |
 
 ### 6.4. 예외 처리
 

@@ -15,11 +15,13 @@ class RateLimiter {
    * @param {number|null} limit          - 분당 최대 호출 횟수. null이면 제한 없음
    * @param {'memory'|'redis'} [backend]
    * @param {string|null} [redisUrl]
+   * @param {string} [agentName]         - Redis 키 분리용 에이전트 이름
    */
-  constructor(limit, backend = 'memory', redisUrl = null) {
+  constructor(limit, backend = 'memory', redisUrl = null, agentName = 'default') {
     this.limit = limit;
     this.backend = backend;
     this._redisUrl = redisUrl;
+    this._agentName = agentName;
     /** @type {number[]} memory 백엔드용 슬라이딩 윈도우 (타임스탬프 ms) */
     this._window = [];
   }
@@ -67,13 +69,22 @@ class RateLimiter {
     }
 
     const client = new Redis(url);
-    const key = 'cassiopeia:brain:rate_limit';
+    // 에이전트 인스턴스별 키 분리 — 같은 Redis를 공유하는 다른 에이전트와 카운터 격리
+    const key = `cassiopeia:brain:rate_limit:${this._agentName}`;
     try {
       const pipeline = client.pipeline();
       pipeline.incr(key);
-      pipeline.expire(key, 60);
+      pipeline.ttl(key);
       const results = await pipeline.exec();
       const count = results[0][1]; // [error, value]
+      const ttl   = results[1][1];
+
+      // 키가 새로 생성된 경우(ttl === -1)에만 60초 만료 설정
+      // 매 호출마다 TTL을 리셋하지 않아야 고정 창 의미가 보존됨
+      if (ttl === -1) {
+        await client.expire(key, 60);
+      }
+
       if (count > this.limit) {
         throw new RateLimitExceededError(
           `분당 호출 횟수 제한(${this.limit}회/분)을 초과했습니다. 잠시 후 다시 시도해주세요.`

@@ -70,7 +70,7 @@ python/
 | `agent.py` | 수신 루프, 서명 검증, LLM 게이트웨이(model 파라미터 지원), 결과 반환, 등록 HTTP 호출 |
 | `brain/_brain.py` | `AgentBrain` — 자연어 요청 → `BrainDecision` 6단계 파이프라인 |
 | `brain/_models.py` | `BrainDecision`(confidence 기본값 0.0, Pydantic ge/le), `AgentBrainConfig`(8개 snake_case 필드) |
-| `brain/_guard.py` | `PromptInjectionGuard` — 13개 정규식 패턴; `check()`는 enabled 존중, `check_static()`은 항상 실행 |
+| `brain/_guard.py` | `PromptInjectionGuard` — 12개 정규식 패턴; `check()`는 enabled 존중, `check_static()`은 항상 실행 |
 | `brain/_validator.py` | `ActionAndParamsValidator` — action 조회 + JSON Schema 타입/필수/추가키 검증, float→int 정규화 |
 | `brain/_sanitizer.py` | `OutputSanitizer` — none/markdown/html 이스케이핑 정책 |
 | `brain/_rate_limiter.py` | `RateLimiter` — memory deque 슬라이딩 윈도우(60초) 또는 redis 비동기 백엔드 |

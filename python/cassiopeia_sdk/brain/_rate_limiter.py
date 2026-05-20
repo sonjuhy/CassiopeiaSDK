@@ -23,10 +23,12 @@ class RateLimiter:
         limit: int | None,
         backend: RateLimitBackend = "memory",
         redis_url: str | None = None,
+        agent_name: str = "default",
     ) -> None:
         self.limit = limit
         self.backend = backend
         self._redis_url = redis_url
+        self._agent_name = agent_name
         # memory 백엔드용 슬라이딩 윈도우 (호출 타임스탬프 저장)
         self._window: deque[float] = deque()
 
@@ -78,13 +80,21 @@ class RateLimiter:
             )
 
         client = aioredis.from_url(url, decode_responses=True)
-        key = "cassiopeia:brain:rate_limit"
+        # 에이전트 인스턴스별 키 분리 — 같은 Redis를 공유하는 다른 에이전트와 카운터 격리
+        key = f"cassiopeia:brain:rate_limit:{self._agent_name}"
         try:
             pipe = client.pipeline()
-            await pipe.incr(key)
-            await pipe.expire(key, 60)
+            pipe.incr(key)
+            pipe.ttl(key)
             results = await pipe.execute()
             current_count: int = results[0]
+            current_ttl: int = results[1]
+
+            # 키가 새로 생성된 경우(TTL=-1)에만 60초 만료 설정
+            # 매 호출마다 TTL을 리셋하지 않아야 고정 창 의미가 보존됨
+            if current_ttl == -1:
+                await client.expire(key, 60)
+
             if current_count > self.limit:
                 raise RateLimitExceededError(
                     f"분당 호출 횟수 제한({self.limit}회/분)을 초과했습니다. "

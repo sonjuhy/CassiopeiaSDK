@@ -111,6 +111,8 @@ class AgentBrain {
     this._rateLimiter = new RateLimiter(
       this.config.rateLimitPerMinute,
       this.config.rateLimitBackend,
+      null,        // redisUrl — 환경변수 BRAIN_RATE_LIMIT_REDIS_URL 자동 사용
+      agentName,   // 에이전트별 Redis 키 분리
     );
   }
 

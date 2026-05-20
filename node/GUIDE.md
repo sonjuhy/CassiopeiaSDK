@@ -291,7 +291,7 @@ class MyAgent extends AgentBase {
 | `enableLlmSecondaryGuard` | `false` | LLM 기반 2차 인젝션 방어 (추가 LLM 호출 발생) |
 | `rateLimitPerMinute` | `null` | 분당 최대 호출 수 (`null`=무제한) |
 | `rateLimitBackend` | `'memory'` | `'memory'` 또는 `'redis'` |
-| `outputEscapePolicy` | `'none'` | `'none'`, `'markdown'`, `'html'` 중 택일 |
+| `outputEscapePolicy` | `'markdown'` | `'none'`, `'markdown'`, `'html'` 중 택일 |
 
 ### 9.4. 예외 처리
 
