@@ -27,17 +27,34 @@ pytest tests/ -v
 ```text
 python/
 ├── cassiopeia_sdk/
-│   ├── __init__.py     # public API re-export (버전 0.2.0)
+│   ├── __init__.py     # public API re-export (버전 0.3.0)
 │   ├── client.py       # CassiopeiaClient, AgentMessage — Redis Pub/Sub
 │   ├── tools.py        # Tool, ToolExecutor — 로컬 도구 등록/실행
 │   ├── auth.py         # verify_message, DispatchAuthError — HMAC 검증
 │   ├── schemas.py      # AgentResult, OrchestraTask, LLMRequest, LLMResponse
-│   └── agent.py        # AgentBase — 에이전트 기본 클래스
+│   ├── agent.py        # AgentBase — 에이전트 기본 클래스
+│   └── brain/          # NLU 추상화 (v0.3.0 신규)
+│       ├── __init__.py         # brain 공개 API 재수출
+│       ├── _brain.py           # AgentBrain — 6단계 분석 파이프라인
+│       ├── _models.py          # BrainDecision, AgentBrainConfig (Pydantic)
+│       ├── _exceptions.py      # PromptInjectionError, UnknownActionError, ParamsValidationError, RateLimitExceededError
+│       ├── _guard.py           # PromptInjectionGuard — 정규식 + check_static
+│       ├── _validator.py       # ActionAndParamsValidator — action/params JSON Schema 검증
+│       ├── _sanitizer.py       # OutputSanitizer — none/markdown/html 이스케이핑
+│       ├── _rate_limiter.py    # RateLimiter — memory deque / redis 비동기 백엔드
+│       └── _providers.py       # GatewayProvider, DirectProvider, LLMProviderFactory
 ├── tests/
 │   ├── test_client.py          # CassiopeiaClient 단위 테스트
 │   ├── test_tools.py           # ToolExecutor 단위 테스트
 │   ├── test_auth.py            # verify_message 단위 테스트
-│   └── test_agent_base.py      # AgentBase 단위 테스트
+│   ├── test_agent_base.py      # AgentBase 단위 테스트
+│   └── brain/
+│       ├── test_brain.py       # AgentBrain 통합 테스트
+│       ├── test_guard.py       # PromptInjectionGuard 단위 테스트
+│       ├── test_models.py      # BrainDecision / AgentBrainConfig 단위 테스트
+│       ├── test_rate_limiter.py # RateLimiter 단위 테스트
+│       ├── test_sanitizer.py   # OutputSanitizer 단위 테스트
+│       └── test_validator.py   # ActionAndParamsValidator 단위 테스트
 ├── pyproject.toml
 └── requirements.txt
 ```
@@ -50,7 +67,15 @@ python/
 | `tools.py` | 로컬 도구 등록 및 동기 실행 |
 | `auth.py` | HMAC-SHA256 서명 검증, 시크릿 미설정 시 건너뜀 |
 | `schemas.py` | 오케스트라 프로토콜 TypedDict 정의 (런타임 영향 없음) |
-| `agent.py` | 수신 루프, 서명 검증, LLM 게이트웨이, 결과 반환, 등록 HTTP 호출 |
+| `agent.py` | 수신 루프, 서명 검증, LLM 게이트웨이(model 파라미터 지원), 결과 반환, 등록 HTTP 호출 |
+| `brain/_brain.py` | `AgentBrain` — 자연어 요청 → `BrainDecision` 6단계 파이프라인 |
+| `brain/_models.py` | `BrainDecision`(confidence 기본값 0.0, Pydantic ge/le), `AgentBrainConfig`(8개 snake_case 필드) |
+| `brain/_guard.py` | `PromptInjectionGuard` — 12개 정규식 패턴; `check()`는 enabled 존중, `check_static()`은 항상 실행 |
+| `brain/_validator.py` | `ActionAndParamsValidator` — action 조회 + JSON Schema 타입/필수/추가키 검증, float→int 정규화 |
+| `brain/_sanitizer.py` | `OutputSanitizer` — none/markdown/html 이스케이핑 정책 |
+| `brain/_rate_limiter.py` | `RateLimiter` — memory deque 슬라이딩 윈도우(60초) 또는 redis 비동기 백엔드 |
+| `brain/_providers.py` | `GatewayProvider`(caller 위임), `DirectProvider`(환경변수 API 키), `LLMProviderFactory` |
+| `brain/_exceptions.py` | `PromptInjectionError`, `UnknownActionError`, `ParamsValidationError`, `RateLimitExceededError` |
 
 ## 6. AgentBase 내부 동작 흐름
 
@@ -78,12 +103,17 @@ request_llm()
 ## 8. Boundaries (경계 및 규칙)
 - **항상:** 시크릿/URL을 코드에 하드코딩하지 않습니다. 환경변수로만 주입합니다.
 - **금지:** SDK 내부에서 오케스트라 Redis 키 구조에 직접 의존하지 않습니다. (Pub/Sub만 사용)
-- **금지:** `system` role 메시지를 LLM 게이트웨이에 전달하지 않습니다.
+- **참고 (v0.3.0 변경):** `request_llm()`은 `system` role 메시지를 허용합니다. `AgentBrain`이 시스템 프롬프트를 포함한 메시지를 LLM에 전달해야 하기 때문입니다. 프롬프트 인젝션 방어는 `PromptInjectionGuard`가 담당합니다.
 
 ## 9. Success Criteria (성공 기준)
 - [x] `AgentBase` 상속만으로 동작하는 에이전트 작성 가능
-- [x] `request_llm()` 으로 API 키 없이 LLM 호출 가능 (오케스트라 게이트웨이 경유)
+- [x] `request_llm()` — API 키 없이 LLM 호출 가능 (오케스트라 게이트웨이 경유), model 파라미터 지원
 - [x] `verify_message()` 로 수신 메시지 HMAC 검증 가능
 - [x] `register()` 로 오케스트라에 에이전트 등록 가능
-- [x] 모든 테스트 통과 (pytest 기준)
-- [x] `GUIDE.md`에 전체 사용법 문서화
+- [x] `AgentBrain` — 자연어 요청 분석 → `BrainDecision` (v0.3.0 신규)
+- [x] `PromptInjectionGuard` — 13개 패턴 정규식 + LLM 2차 방어
+- [x] `ActionAndParamsValidator` — JSON Schema 기반 action/params 검증
+- [x] `OutputSanitizer` — none/markdown/html 이스케이핑
+- [x] `RateLimiter` — memory/redis 백엔드 슬라이딩 윈도우
+- [x] 151개 테스트 전체 통과 (pytest 기준)
+- [x] `GUIDE.md`에 AgentBrain 포함 전체 사용법 문서화

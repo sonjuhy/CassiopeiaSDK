@@ -1,16 +1,19 @@
 /**
  * AgentBase — 외부 에이전트 기본 클래스
  *
- * 사용법:
+ * Usage:
  *   class MyAgent extends AgentBase {
  *     async handle(msg) {
- *       const response = await this.requestLlm([{ role: 'user', content: msg.payload.content }]);
- *       await this.sendResult(msg.payload.task_id, { answer: response.content });
+ *       const result = await this.requestLlm(
+ *         [{ role: 'user', content: msg.payload.content }],
+ *         { model: 'gemini-1.5-pro', maxTokens: 800 }
+ *       );
+ *       await this.sendResult(msg.payload.task_id, { answer: result.content });
  *     }
  *   }
  *
  *   const agent = new MyAgent('my_agent', process.env.REDIS_URL);
- *   await agent.register(process.env.ORCHESTRA_URL, { capabilities: ['my_action'], allowLlmAccess: true });
+ *   await agent.register(process.env.CASSIOPEIA_URL, { capabilities: ['my_action'] });
  *   await agent.start();
  */
 'use strict';
@@ -18,6 +21,7 @@
 const crypto = require('crypto');
 const { CassiopeiaClient } = require('./client');
 const { verifyMessage, DispatchAuthError } = require('./auth');
+const { LLMRequestSchema } = require('./schemas');
 
 class AgentBase {
   /**
@@ -31,26 +35,20 @@ class AgentBase {
     this._pendingLlm = new Map();
   }
 
-  /**
-   * 연결 후 메시지 수신 루프를 시작합니다. 프로세스가 종료될 때까지 실행됩니다.
-   */
+  /** 연결 후 메시지 수신 루프를 시작합니다. */
   async start() {
     await this.client.connect();
     await this.client.listen(async (msg) => {
-      // LLM 게이트웨이 응답은 내부적으로 처리
       if (msg.action === 'llm_result') {
         this._resolveLlm(msg.payload);
         return;
       }
-
-      // HMAC 검증
       try {
         verifyMessage(msg.payload);
       } catch (e) {
-        if (e instanceof DispatchAuthError) return; // 무효 메시지 무시
+        if (e instanceof DispatchAuthError) return;
         return;
       }
-
       try {
         await this.handle(msg);
       } catch (e) {
@@ -68,10 +66,10 @@ class AgentBase {
   }
 
   /**
-   * 오케스트라에 처리 결과를 반환합니다.
-   * @param {string} taskId        - msg.payload.task_id
-   * @param {Object} resultData    - 처리 결과 데이터
-   * @param {string|null} error    - 오류 메시지 (실패 시)
+   * 카시오페아에 처리 결과를 반환합니다.
+   * @param {string} taskId
+   * @param {object} resultData
+   * @param {string|null} error
    */
   async sendResult(taskId, resultData, error = null) {
     await this.client.sendMessage(
@@ -90,17 +88,32 @@ class AgentBase {
 
   /**
    * 오케스트라 LLM 게이트웨이를 통해 LLM을 호출합니다.
-   * allow_llm_access=true로 등록된 에이전트만 사용 가능합니다.
    *
-   * @param {Array<{role: 'user'|'assistant', content: string}>} messages
-   * @param {Object} [options]
-   * @param {number} [options.maxTokens=500]       - 최대 토큰 수 (1~2000)
-   * @param {number} [options.temperature=0.7]     - 온도 (0.0~1.0)
-   * @param {number} [options.timeout=30000]       - 응답 대기 밀리초
-   * @returns {Promise<import('./schemas').LLMResponse>}
+   * @param {Array<{role: 'user'|'assistant'|'system', content: string}>} messages
+   * @param {object} [options]
+   * @param {number}      [options.maxTokens=500]    - 최대 토큰 수 (1~2000)
+   * @param {number}      [options.temperature=0.7]  - 온도 (0.0~1.0)
+   * @param {number}      [options.timeout=30000]    - 응답 대기 밀리초
+   * @param {string|null} [options.model=null]       - 모델 오버라이드 (null이면 서버 기본값)
+   * @returns {Promise<object>} LLM 응답 payload
+   * @throws {ZodError} 입력값이 유효하지 않을 때 (서버 전송 전 차단)
+   * @throws {Error}    timeout 내에 응답이 없을 때
    */
-  async requestLlm(messages, { maxTokens = 500, temperature = 0.7, timeout = 30000 } = {}) {
+  async requestLlm(messages, { maxTokens = 500, temperature = 0.7, timeout = 30000, model = null } = {}) {
     const taskId = crypto.randomUUID();
+
+    // 페이로드 구성 (model=null이면 키 자체를 제외)
+    const requestPayload = {
+      task_id: taskId,
+      agent_id: this.agentId,
+      messages,
+      max_tokens: maxTokens,
+      temperature,
+      ...(model !== null && model !== undefined ? { model } : {}),
+    };
+
+    // 서버 전송 전 Zod 검증 — 유효하지 않으면 ZodError 발생
+    LLMRequestSchema.parse(requestPayload);
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -111,17 +124,7 @@ class AgentBase {
       this._pendingLlm.set(taskId, { resolve, reject, timer });
 
       this.client
-        .sendMessage(
-          'llm_call',
-          {
-            task_id: taskId,
-            agent_id: this.agentId,
-            messages,
-            max_tokens: maxTokens,
-            temperature,
-          },
-          'orchestra'
-        )
+        .sendMessage('llm_call', requestPayload, 'orchestra')
         .catch((err) => {
           clearTimeout(timer);
           this._pendingLlm.delete(taskId);
@@ -131,26 +134,24 @@ class AgentBase {
   }
 
   /**
-   * 오케스트라 HTTP API로 이 에이전트를 등록합니다.
-   * Node.js 18+ 내장 fetch를 사용합니다.
-   *
-   * @param {string} orchestraUrl  - 오케스트라 주소 (예: "http://localhost:8000")
-   * @param {Object} [options]
+   * HTTP API로 카시오페아에 에이전트를 등록합니다.
+   * @param {string} cassiopeiaUrl
+   * @param {object} [options]
    * @param {string[]} [options.capabilities=[]]
-   * @param {string}   [options.lifecycleType='long_running']   - 'long_running' | 'ephemeral'
-   * @param {string}   [options.permissionPreset='standard']    - 'minimal' | 'standard' | 'trusted'
+   * @param {string}   [options.lifecycleType='long_running']
+   * @param {string}   [options.permissionPreset='standard']
    * @param {boolean}  [options.allowLlmAccess=false]
    * @param {string}   [options.apiKey='']
    * @returns {Promise<boolean>}
    */
-  async register(orchestraUrl, {
+  async register(cassiopeiaUrl, {
     capabilities = [],
     lifecycleType = 'long_running',
     permissionPreset = 'standard',
     allowLlmAccess = false,
     apiKey = '',
   } = {}) {
-    const response = await fetch(`${orchestraUrl}/agents`, {
+    const response = await fetch(`${cassiopeiaUrl}/agents`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

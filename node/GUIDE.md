@@ -101,11 +101,15 @@ await this.sendResult(msg.payload.task_id, {}, '처리 중 오류 발생');
 ```javascript
 async handle(msg) {
   const response = await this.requestLlm(
-    [{ role: 'user', content: msg.payload.content }],
+    [
+      { role: 'system', content: '너는 친절한 도우미야.' },   // system 허용
+      { role: 'user',   content: msg.payload.content },
+    ],
     {
-      maxTokens: 500,     // 최대 2000
-      temperature: 0.7,   // 0.0 ~ 1.0
-      timeout: 30000,     // 밀리초 단위 응답 대기
+      maxTokens: 500,              // 최대 2000
+      temperature: 0.7,            // 0.0 ~ 1.0
+      timeout: 30000,              // 밀리초 단위 응답 대기
+      model: 'gemini-1.5-pro',     // 모델 오버라이드 (생략 시 서버 기본값)
     }
   );
 
@@ -121,9 +125,11 @@ async handle(msg) {
 ```
 
 **제약 사항:**
-- `role`은 `'user'`, `'assistant'`만 허용 (`'system'` 불허)
+- `role`은 `'user'`, `'assistant'`, `'system'` 허용
 - `maxTokens` 최대 2000
 - `temperature` 0.0 ~ 1.0
+- `model` 미지정 시 오케스트라 서버 기본값 사용 (payload에서 키 자체 제외됨)
+- 잘못된 값은 서버 전송 전 Zod 오류로 차단됨
 
 ---
 
@@ -203,7 +209,116 @@ await client.disconnect();
 
 ---
 
-## 9. 타입 참조 (JSDoc)
+## 9. AgentBrain — 자연어 요청 분석 (v0.3.0)
+
+`AgentBrain`은 사용자의 자연어 요청을 분석해 어떤 Tool을 어떤 파라미터로 호출해야 하는지 결정합니다. 프롬프트 인젝션 방어, 신뢰도 평가, 재시도, 출력 이스케이핑을 내장합니다.
+
+### 9.1. 기본 사용법
+
+```javascript
+const { AgentBase, Tool, brain } = require('cassiopeia-sdk');
+const { AgentBrain, AgentBrainConfig, BrainDecision } = brain;
+
+class MyAgent extends AgentBase {
+  constructor(agentId, redisUrl) {
+    super(agentId, redisUrl);
+
+    this.brain = new AgentBrain({
+      agentName: agentId,
+      capabilities: '파일 검색 및 노트 관리',
+      backend: 'gateway',
+      llmCaller: this.requestLlm.bind(this),   // 오케스트라 LLM 게이트웨이 재사용
+      config: new AgentBrainConfig({
+        confidenceThreshold: 0.7,    // 이 미만이면 ask_clarification 반환
+        rateLimitPerMinute: 60,      // 분당 최대 analyzeTask 호출 수
+        outputEscapePolicy: 'html',  // 출력 이스케이핑 정책
+      }),
+    });
+
+    this.tools = [
+      new Tool({
+        name: 'search_file',
+        description: '파일 검색',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+          required: ['query'],
+        },
+      }),
+    ];
+  }
+
+  async handle(msg) {
+    const decision = await this.brain.analyzeTask(
+      msg.payload.content,
+      this.tools,
+      msg.payload.history || null,   // 이전 대화 맥락 (선택)
+    );
+
+    if (decision.action === 'ask_clarification') {
+      // 사용자에게 재질문
+      await this.sendResult(msg.payload.task_id, {
+        reply: decision.suggested_reply,
+      });
+      return;
+    }
+
+    // decision.action, decision.params 로 Tool 실행
+    const result = await myExecutor(decision.action, decision.params);
+    await this.sendResult(msg.payload.task_id, { answer: result });
+  }
+}
+```
+
+### 9.2. BrainDecision 필드
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `action` | `string` | 실행할 Tool 이름 또는 `'ask_clarification'` |
+| `params` | `object` | 검증된 Tool 파라미터 |
+| `confidence` | `number` (0.0–1.0) | LLM 응답 신뢰도 (기본값 0.0) |
+| `reasoning` | `string\|null` | LLM의 선택 이유 |
+| `suggested_reply` | `string\|null` | ask_clarification 시 사용자에게 전달할 문구 |
+
+### 9.3. AgentBrainConfig 옵션
+
+| 옵션 | 기본값 | 설명 |
+|------|--------|------|
+| `confidenceThreshold` | `0.7` | 이 값 미만이면 `ask_clarification` 반환 |
+| `maxRetries` | `2` | JSON 파싱/검증 실패 시 재시도 횟수 |
+| `enableInjectionGuard` | `true` | 정규식 기반 인젝션 방어 활성화 |
+| `injectionGuardPolicy` | `'fallback'` | `'fallback'`(ask_clarification 반환) 또는 `'raise'`(예외 발생) |
+| `enableLlmSecondaryGuard` | `false` | LLM 기반 2차 인젝션 방어 (추가 LLM 호출 발생) |
+| `rateLimitPerMinute` | `null` | 분당 최대 호출 수 (`null`=무제한) |
+| `rateLimitBackend` | `'memory'` | `'memory'` 또는 `'redis'` |
+| `outputEscapePolicy` | `'markdown'` | `'none'`, `'markdown'`, `'html'` 중 택일 |
+
+### 9.4. 예외 처리
+
+```javascript
+const { brain } = require('cassiopeia-sdk');
+const {
+  PromptInjectionError,
+  ParamsValidationError,
+  RateLimitExceededError,
+} = brain;
+
+try {
+  const decision = await this.brain.analyzeTask(userInput, tools);
+} catch (e) {
+  if (e instanceof RateLimitExceededError) {
+    // 분당 한도 초과
+  } else if (e instanceof PromptInjectionError) {
+    // injectionGuardPolicy='raise' 설정 시 발생
+  } else if (e instanceof ParamsValidationError) {
+    // maxRetries 소진 후에도 유효한 응답 없음
+  }
+}
+```
+
+---
+
+## 10. 타입 참조 (JSDoc)
 
 ```javascript
 const sdk = require('cassiopeia-sdk');
@@ -213,7 +328,7 @@ const sdk = require('cassiopeia-sdk');
 
 ---
 
-## 10. 환경 변수 정리
+## 11. 환경 변수 정리
 
 | 변수 | 설명 | 기본값 |
 |------|------|--------|
@@ -221,10 +336,11 @@ const sdk = require('cassiopeia-sdk');
 | `ORCHESTRA_URL` | 오케스트라 HTTP 주소 | `http://localhost:8000` |
 | `ORCHESTRA_API_KEY` | 오케스트라 API 키 | — |
 | `DISPATCH_HMAC_SECRET` | HMAC 서명 검증 시크릿 | — (미설정 시 검증 생략) |
+| `BRAIN_RATE_LIMIT_REDIS_URL` | AgentBrain RateLimiter redis 백엔드 URL | — (`rateLimitBackend: 'redis'` 시 필수) |
 
 ---
 
-## 11. Docker 환경
+## 12. Docker 환경
 
 ```dockerfile
 FROM node:20-alpine
