@@ -324,3 +324,43 @@ describe('AgentBrain — Rate Limit', () => {
     for (let i = 0; i < 20; i++) await brain.analyzeTask('q', TOOLS);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 8. 대화(direct_response) 자동 주입 검증
+// ---------------------------------------------------------------------------
+
+describe('AgentBrain — direct_response 옵션', () => {
+
+  it('기본값(false) 시 툴이 자동 추가되지 않음', async () => {
+    const { brain, mockCaller } = makeBrain(makeLlmResponse('search_file', { query: 'A' }));
+    await brain.analyzeTask('req', TOOLS);
+    
+    // 시스템 프롬프트에 direct_response가 없어야 함
+    const messages = mockCaller.mock.calls[0][0];
+    const sysPrompt = messages[0].content;
+    expect(sysPrompt).not.toContain('direct_response');
+  });
+
+  it('enableDirectResponse: true 설정 시 툴 주입 및 정상 처리됨', async () => {
+    const { brain, mockCaller } = makeBrain(
+      makeLlmResponse('direct_response', { message: '반갑습니다.' }),
+      { enableDirectResponse: true, outputEscapePolicy: 'none' }
+    );
+    
+    // 원본 tools 유지 확인
+    const originalTools = [...TOOLS];
+    const decision = await brain.analyzeTask('req', originalTools);
+    
+    expect(originalTools.length).toBe(TOOLS.length);
+
+    // 1. 툴 주입 검증
+    const messages = mockCaller.mock.calls[0][0];
+    const sysPrompt = messages[0].content;
+    expect(sysPrompt).toContain('direct_response');
+    
+    // 2. decision 검증
+    expect(decision.action).toBe('direct_response');
+    expect(decision.params).toEqual({ message: '반갑습니다.' });
+    expect(decision.suggested_reply).toBe('반갑습니다.');
+  });
+});

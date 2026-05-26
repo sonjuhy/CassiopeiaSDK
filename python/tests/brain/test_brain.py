@@ -455,3 +455,51 @@ class TestRateLimitIntegration:
         )
         for _ in range(20):
             await brain.analyze_task("q", TOOLS)
+
+# ---------------------------------------------------------------------------
+# 8. 대화(direct_response) 자동 주입 검증
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestDirectResponseOption:
+
+    async def test_direct_response_disabled_by_default(self):
+        """enable_direct_response 기본값(False) 시 툴이 자동 추가되지 않음 검증."""
+        mock_caller = AsyncMock(return_value=_make_llm_response("search_file", {"query": "A"}))
+        brain = AgentBrain(
+            agent_name="t", capabilities="t", backend="gateway", llm_caller=mock_caller,
+            config=AgentBrainConfig()
+        )
+        await brain.analyze_task("req", TOOLS)
+        
+        # 시스템 프롬프트에 direct_response가 없어야 함
+        messages = mock_caller.call_args.kwargs["messages"]
+        sys_prompt = messages[0]["content"]
+        assert "direct_response" not in sys_prompt
+
+    async def test_direct_response_enabled_injects_tool(self):
+        """enable_direct_response=True 설정 시 direct_response 툴이 주입되고 정상 처리됨 검증."""
+        mock_caller = AsyncMock(return_value=_make_llm_response(
+            "direct_response", {"message": "반갑습니다."}
+        ))
+        brain = AgentBrain(
+            agent_name="t", capabilities="t", backend="gateway", llm_caller=mock_caller,
+            config=AgentBrainConfig(enable_direct_response=True, output_escape_policy="none")
+        )
+        
+        # analyze_task 실행 (원본 tools 유지 확인)
+        original_tools = list(TOOLS)
+        decision = await brain.analyze_task("req", original_tools)
+        
+        # 원본 tools 리스트는 수정되지 않아야 함 (부작용 방지)
+        assert len(original_tools) == len(TOOLS)
+
+        # 1. 툴 자동 주입 검증
+        messages = mock_caller.call_args.kwargs["messages"]
+        sys_prompt = messages[0]["content"]
+        assert "direct_response" in sys_prompt
+        
+        # 2. decision 검증
+        assert decision.action == "direct_response"
+        assert decision.params == {"message": "반갑습니다."}
+        assert decision.suggested_reply == "반갑습니다."
