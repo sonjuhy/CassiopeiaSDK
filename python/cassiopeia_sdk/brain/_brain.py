@@ -208,7 +208,24 @@ class AgentBrain:
 
         # Step 2. 시스템 프롬프트 조립
         #         capabilities + tools의 JSON Schema 변환 + history 포함
-        tools_schema_str = _tools_to_schema_str(tools)
+        _tools = list(tools)
+        if getattr(self.config, "enable_direct_response", False):
+            # tools에 이미 "direct_response"가 없는지 확인 후 추가
+            if not any((t.name if hasattr(t, "name") else t.get("name")) == "direct_response" for t in _tools):
+                from cassiopeia_sdk.tools import Tool
+                _tools.append(
+                    Tool(
+                        name="direct_response",
+                        description="이전 대화 맥락(history)을 바탕으로 사용자 질문에 텍스트로 직접 답변합니다.",
+                        parameters={
+                            "type": "object",
+                            "properties": {"message": {"type": "string", "description": "사용자에게 전달할 답변 내용"}},
+                            "required": ["message"]
+                        }
+                    )
+                )
+
+        tools_schema_str = _tools_to_schema_str(_tools)
         system_prompt = _SYSTEM_PROMPT.format(
             capabilities=self.capabilities,
             tools_schema=tools_schema_str,
@@ -218,7 +235,7 @@ class AgentBrain:
         # Step 3 & 4. 메인 LLM 호출 + JSON 안전 파싱 + ActionAndParamsValidator
         #             실패 시 오류 피드백 포함 지수 백오프 재시도 (max_retries 횟수)
         #             재시도 LLM 호출은 rate_limit 카운트에 포함되지 않음
-        decision_data = await self._call_with_retry(messages, tools)
+        decision_data = await self._call_with_retry(messages, _tools)
 
         # Step 5. 신뢰도 평가
         #         confidence < config.confidence_threshold
@@ -234,6 +251,9 @@ class AgentBrain:
                 suggested_reply=decision_data.get("reasoning"),  # reasoning 기반 자동 생성
             )
         else:
+            if decision_data.get("action") == "direct_response":
+                msg = decision_data.get("params", {}).get("message")
+                if msg: decision_data["suggested_reply"] = msg
             decision = BrainDecision(**decision_data)
 
         # Step 6. OutputSanitizer 적용

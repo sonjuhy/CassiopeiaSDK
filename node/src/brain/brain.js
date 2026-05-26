@@ -161,14 +161,32 @@ class AgentBrain {
     }
 
     // Step 2. 시스템 프롬프트 조립
-    const toolsSchemaStr = toolsToSchemaStr(tools);
+    const _tools = [...tools];
+    if (this.config.enableDirectResponse) {
+      if (!_tools.some(t => (t.name || t.name) === 'direct_response')) {
+        const { Tool } = require('../tools');
+        _tools.push(
+          new Tool({
+            name: 'direct_response',
+            description: '이전 대화 맥락(history)을 바탕으로 사용자 질문에 텍스트로 직접 답변합니다.',
+            parameters: {
+              type: 'object',
+              properties: { message: { type: 'string', description: '사용자에게 전달할 답변 내용' } },
+              required: ['message'],
+            },
+          })
+        );
+      }
+    }
+
+    const toolsSchemaStr = toolsToSchemaStr(_tools);
     const systemPrompt = SYSTEM_PROMPT
       .replace('{capabilities}', this.capabilities)
       .replace('{tools_schema}', toolsSchemaStr);
     const messages = buildMessages(systemPrompt, userRequest, history);
 
     // Step 3 & 4. 메인 LLM 호출 + 파싱 + 검증 (with retry)
-    const decisionData = await this._callWithRetry(messages, tools);
+    const decisionData = await this._callWithRetry(messages, _tools);
 
     // Step 5. 신뢰도 평가
     const confidence = typeof decisionData.confidence === 'number' ? decisionData.confidence : 0.0;
@@ -182,6 +200,10 @@ class AgentBrain {
         suggested_reply: decisionData.reasoning || null, // reasoning 기반 자동 생성
       });
     } else {
+      if (decisionData.action === 'direct_response') {
+        const msg = decisionData.params?.message;
+        if (msg) decisionData.suggested_reply = msg;
+      }
       decision = new BrainDecision(decisionData);
     }
 
