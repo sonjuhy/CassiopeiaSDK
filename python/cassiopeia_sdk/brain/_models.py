@@ -89,6 +89,12 @@ class AgentBrainConfig(BaseModel):
     "fallback": 인젝션 탐지 시 confidence=0 + action="ask_clarification" 으로 강제 라우팅.
     """
 
+    enable_direct_response: bool = False
+    """
+    True로 설정 시, 에이전트가 이전 대화 맥락을 기반으로 툴 실행 없이 직접 텍스트로
+    답변할 수 있도록 'direct_response' 툴을 자동으로 주입합니다.
+    """
+
     enable_llm_secondary_guard: bool = False
     """
     True 설정 시 Step 1 정규식 검사 통과 후, 메인 LLM 호출 전에

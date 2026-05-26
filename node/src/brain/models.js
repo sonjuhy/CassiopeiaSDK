@@ -45,6 +45,8 @@ const AgentBrainConfigSchema = z.object({
   enableInjectionGuard: z.boolean().default(true),
   /** "raise": PromptInjectionError 발생 / "fallback": ask_clarification 라우팅 */
   injectionGuardPolicy: z.enum(['raise', 'fallback']).default('fallback'),
+  /** true 시, 툴 없이 대화만으로 응답할 수 있도록 direct_response 툴 자동 주입 */
+  enableDirectResponse: z.boolean().default(false),
   /** true 시 메인 LLM 호출 전 LLM 기반 2차 인젝션 검증 수행 (rate_limit 카운트 포함) */
   enableLlmSecondaryGuard: z.boolean().default(false),
   /** per-agent-instance 분당 최대 호출 횟수. null이면 제한 없음 */
