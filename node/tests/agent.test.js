@@ -156,4 +156,39 @@ describe('AgentBase.register', () => {
     const result = await agent.register('http://localhost:8000', { capabilities: [] });
     expect(result).toBe(false);
   });
+
+  const bodyOf = (calls) => JSON.parse(calls[0][1].body);
+
+  it('자기 기술 메타데이터(nluDescription/paramsSchema/defaultTimeout/routing)를 본문에 포함합니다', async () => {
+    const agent = makeAgent();
+    global.fetch = jest.fn().mockResolvedValue({ status: 201 });
+
+    await agent.register('http://localhost:8000', {
+      capabilities: ['my_action'],
+      apiKey: 'test-key',
+      nluDescription: '- my_agent: 날씨를 조회합니다.',
+      paramsSchema: { action: 'get_weather', params: { location: '도시명' } },
+      defaultTimeout: 90,
+      routing: { role: 'communication', platforms: ['slack', 'discord'] },
+    });
+
+    const body = bodyOf(fetch.mock.calls);
+    expect(body.nlu_description).toBe('- my_agent: 날씨를 조회합니다.');
+    expect(body.params_schema).toEqual({ action: 'get_weather', params: { location: '도시명' } });
+    expect(body.default_timeout).toBe(90);
+    expect(body.routing).toEqual({ role: 'communication', platforms: ['slack', 'discord'] });
+  });
+
+  it('선언하지 않은 메타데이터 필드는 본문에서 생략됩니다', async () => {
+    const agent = makeAgent();
+    global.fetch = jest.fn().mockResolvedValue({ status: 201 });
+
+    await agent.register('http://localhost:8000', { capabilities: ['my_action'] });
+
+    const body = bodyOf(fetch.mock.calls);
+    expect(body).not.toHaveProperty('params_schema');
+    expect(body).not.toHaveProperty('default_timeout');
+    expect(body).not.toHaveProperty('routing');
+    expect(body.agent_name).toBe('my_agent');
+  });
 });

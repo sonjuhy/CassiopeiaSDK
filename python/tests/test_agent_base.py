@@ -144,3 +144,52 @@ class TestRegister:
             result = await agent.register(cassiopeia_url="http://localhost:8000", capabilities=[])
 
         assert result is False
+
+    @staticmethod
+    def _post_with(agent, **register_kwargs):
+        """register()를 호출하고 POST 본문(json)을 반환하는 헬퍼."""
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+
+        async def _run():
+            with patch("httpx.AsyncClient") as mock_client_cls:
+                mock_http = AsyncMock()
+                mock_http.post = AsyncMock(return_value=mock_response)
+                mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+                mock_http.__aexit__ = AsyncMock(return_value=None)
+                mock_client_cls.return_value = mock_http
+
+                await agent.register(
+                    cassiopeia_url="http://localhost:8000",
+                    capabilities=["my_action"],
+                    api_key="test-key",
+                    **register_kwargs,
+                )
+                return mock_http.post.call_args.kwargs["json"]
+
+        return _run()
+
+    async def test_self_describing_fields_included_in_body(self, agent):
+        """에이전트는 nlu_description / params_schema / default_timeout / routing 을
+        등록 시 함께 선언할 수 있어야 한다 (지휘자 하드코딩 제거의 기반)."""
+        body = await self._post_with(
+            agent,
+            nlu_description="- my_agent: 날씨를 조회합니다.",
+            params_schema={"action": "get_weather", "params": {"location": "도시명"}},
+            default_timeout=90,
+            routing={"role": "communication", "platforms": ["slack", "discord"]},
+        )
+        assert body["nlu_description"] == "- my_agent: 날씨를 조회합니다."
+        assert body["params_schema"] == {"action": "get_weather", "params": {"location": "도시명"}}
+        assert body["default_timeout"] == 90
+        assert body["routing"] == {"role": "communication", "platforms": ["slack", "discord"]}
+
+    async def test_self_describing_fields_omitted_when_not_given(self, agent):
+        """선언하지 않은 메타데이터 필드는 본문에서 생략되어야 한다 (하위호환)."""
+        body = await self._post_with(agent)
+        assert "params_schema" not in body
+        assert "default_timeout" not in body
+        assert "routing" not in body
+        # 기존 필수 필드는 그대로 유지
+        assert body["agent_name"] == "my_agent"
+        assert body["capabilities"] == ["my_action"]

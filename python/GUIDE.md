@@ -62,14 +62,31 @@ asyncio.run(main())
 
 ```python
 await agent.register(
-    orchestra_url="http://localhost:8000",  # 오케스트라 주소
+    cassiopeia_url="http://localhost:8000", # 카시오페아(오케스트라) 주소
     capabilities=["search", "summarize"],   # 이 에이전트가 처리할 수 있는 액션 목록
     lifecycle_type="long_running",          # "long_running" | "ephemeral"
     permission_preset="standard",           # "minimal" | "standard" | "trusted"
     allow_llm_access=True,                  # LLM 게이트웨이 사용 여부
     api_key="your-api-key",
+    # ── 자기 기술(self-describing) 메타데이터 (모두 선택) ──
+    # 지휘자는 에이전트 이름을 코드에서 특별 취급하지 않습니다.
+    # 라우팅 품질 · 타임아웃 · 역할은 아래 선언값에서만 결정됩니다.
+    nlu_description="- search_agent: 웹을 검색하고 결과를 요약합니다.",
+    params_schema={                          # LLM 라우팅 시 노출할 액션/파라미터 가이드
+        "action": "search",
+        "params": {"query": "검색어"},
+    },
+    default_timeout=120,                     # 이 에이전트 작업의 기본 타임아웃(초)
+    # routing={"role": "communication",      # 메신저(커뮤니케이션) 에이전트인 경우
+    #          "platforms": ["slack"]},
 )
 ```
+
+> 💡 **자기 기술 메타데이터의 의미**
+> 카시오페아 지휘자는 어떤 에이전트도 이름으로 구분하지 않습니다(완전 독립).
+> `params_schema`를 선언하면 내장 에이전트와 동일한 품질의 라우팅 힌트를 받고,
+> `default_timeout`은 지휘자의 작업 대기 시간을, `routing.role="communication"`은
+> 사용자 응답을 전달할 메신저 에이전트로 자신을 등록합니다. 생략 시 안전한 기본값이 적용됩니다.
 
 | `lifecycle_type` | 설명 |
 |-----------------|------|

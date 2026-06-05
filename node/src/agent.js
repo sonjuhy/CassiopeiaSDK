@@ -142,7 +142,16 @@ class AgentBase {
    * @param {string}   [options.permissionPreset='standard']
    * @param {boolean}  [options.allowLlmAccess=false]
    * @param {string}   [options.apiKey='']
+   * @param {string}   [options.nluDescription] NLU 라우팅용 자연어 설명
+   * @param {object}   [options.paramsSchema]   지휘자가 LLM에 노출할 액션/파라미터 가이드
+   * @param {number}   [options.defaultTimeout] 이 에이전트 작업의 기본 타임아웃(초)
+   * @param {object}   [options.routing]        라우팅 메타데이터 (예: { role, platforms })
    * @returns {Promise<boolean>}
+   *
+   * nluDescription/paramsSchema/defaultTimeout/routing 은 모두 선택 사항인
+   * 자기 기술(self-describing) 메타데이터입니다. 지휘자가 에이전트 이름을
+   * 코드에서 특별 취급하지 않고 동일하게 다루도록, 에이전트가 자신의 능력을
+   * 선언합니다. 생략하면 본문에서 빠집니다(하위호환).
    */
   async register(cassiopeiaUrl, {
     capabilities = [],
@@ -150,20 +159,30 @@ class AgentBase {
     permissionPreset = 'standard',
     allowLlmAccess = false,
     apiKey = '',
+    nluDescription = '',
+    paramsSchema = undefined,
+    defaultTimeout = undefined,
+    routing = undefined,
   } = {}) {
+    const body = {
+      agent_name: this.agentId,
+      capabilities,
+      lifecycle_type: lifecycleType,
+      permission_preset: permissionPreset,
+      allow_llm_access: allowLlmAccess,
+    };
+    if (nluDescription) body.nlu_description = nluDescription;
+    if (paramsSchema !== undefined) body.params_schema = paramsSchema;
+    if (defaultTimeout !== undefined) body.default_timeout = defaultTimeout;
+    if (routing !== undefined) body.routing = routing;
+
     const response = await fetch(`${cassiopeiaUrl}/agents`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-API-Key': apiKey,
       },
-      body: JSON.stringify({
-        agent_name: this.agentId,
-        capabilities,
-        lifecycle_type: lifecycleType,
-        permission_preset: permissionPreset,
-        allow_llm_access: allowLlmAccess,
-      }),
+      body: JSON.stringify(body),
     });
     return response.status === 201;
   }
